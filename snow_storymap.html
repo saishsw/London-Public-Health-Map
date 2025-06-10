@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Cholera Story Map</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <style>
+        body, html { margin: 0; padding: 0; font-family: sans-serif; }
+        #map { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; }
+        .story-container {
+            position: relative;
+            width: 100%;
+            z-index: 10;
+            pointer-events: none;
+        }
+        .story-section {
+            height: 100vh;
+            padding: 40px;
+            background-color: rgba(255, 255, 255, 0.3);
+            box-sizing: border-box;
+            pointer-events: auto;
+            border-radius: 10px;
+            font-family: Arial, sans-serif;
+        }
+        h2 {
+            font-size: 24px;
+        }
+        p {
+            font-size: 18px;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div class="story-container">
+        <div class="story-section" data-layer="deaths_nd_by_house">
+            <h2>Deaths and Non-Deaths by House</h2>
+            <p>This layer shows individual buildings and whether they had cholera deaths or not. Red indicates deaths, yellow indicates none.</p>
+        </div>
+        <div class="story-section" data-layer="deaths_by_bldg">
+            <h2>Deaths by Building</h2>
+            <p>Each building is shaded by the number of deaths it recorded. This reveals the epicenter around the Broad Street pump.</p>
+        </div>
+        <div class="story-section" data-layer="deaths_by_block">
+            <h2>Deaths by Block</h2>
+            <p>Blocks show aggregated cholera deaths. This highlights the spatial distribution of the outbreak.</p>
+        </div>
+        <div class="story-section" data-layer="pumps">
+            <h2>Water Pumps</h2>
+            <p>Locations of the 8 neighborhood water pumps. The Broad Street pump is central to the outbreak.</p>
+        </div>
+        <div class="story-section" data-layer="sewergrates_ventilators">
+            <h2>Sewer Grates and Ventilators</h2>
+            <p>These features were believed to contribute to the miasma theory. See their proximity to outbreaks.</p>
+        </div>
+        <div class="story-section" data-layer="subdistricts">
+            <h2>South London Subdistricts</h2>
+            <p>This map shows data from John Snow's follow-up natural experiment in South London.</p>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script>
+        const map = L.map('map').setView([51.515, -0.136], 15);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        }).addTo(map);
+
+        const layers = {};
+
+        const layerConfigs = {
+            deaths_nd_by_house: {
+                url: 'deaths_nd_by_house.geojson',
+                style: feature => ({
+                    color: feature.properties.deaths ? '#e31a1c' : '#fed976',
+                    radius: 4,
+                    fillOpacity: 0.8
+                }),
+                pointToLayer: (feature, latlng) => L.circleMarker(latlng, layerConfigs.deaths_nd_by_house.style(feature))
+            },
+            deaths_by_bldg: {
+                url: 'deaths_by_bldg.geojson',
+                style: feature => ({
+                    fillColor: '#e31a1c',
+                    weight: 1,
+                    opacity: 1,
+                    color: 'white',
+                    fillOpacity: 0.6
+                }),
+                onEachFeature: (feature, layer) => {
+                    if (feature.properties.deaths) {
+                        layer.bindPopup(`Deaths: ${feature.properties.deaths}`);
+                    }
+                }
+            },
+            deaths_by_block: {
+                url: 'deaths_by_block.geojson',
+                style: feature => ({
+                    fillColor: '#bd0026',
+                    weight: 1,
+                    opacity: 1,
+                    color: 'white',
+                    fillOpacity: 0.6
+                }),
+                onEachFeature: (feature, layer) => {
+                    if (feature.properties.deaths) {
+                        layer.bindPopup(`Block Deaths: ${feature.properties.deaths}`);
+                    }
+                }
+            },
+            pumps: {
+                url: 'pumps.geojson',
+                style: {},
+                pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
+                    color: 'blue', radius: 5, fillOpacity: 0.9
+                })
+            },
+            sewergrates_ventilators: {
+                url: 'sewergrates_ventilators.geojson',
+                style: {},
+                pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
+                    color: 'gray', radius: 4, fillOpacity: 0.7
+                })
+            },
+            subdistricts: {
+                url: 'subdistricts.geojson',
+                style: feature => ({
+                    fillColor: '#2b8cbe',
+                    weight: 1,
+                    color: 'white',
+                    fillOpacity: 0.5
+                })
+            }
+        };
+
+        for (const [key, config] of Object.entries(layerConfigs)) {
+            fetch(config.url)
+                .then(res => res.json())
+                .then(data => {
+                    const layer = L.geoJSON(data, config);
+                    layers[key] = layer;
+                });
+        }
+
+        let currentLayer = null;
+        function updateMapLayer(layerId) {
+            if (currentLayer) map.removeLayer(currentLayer);
+            if (layers[layerId]) {
+                layers[layerId].addTo(map);
+                currentLayer = layers[layerId];
+            }
+        }
+
+        const sections = document.querySelectorAll('.story-section');
+        window.addEventListener('scroll', () => {
+            let closest = null;
+            let closestDist = Infinity;
+            sections.forEach(section => {
+                const rect = section.getBoundingClientRect();
+                const dist = Math.abs(rect.top);
+                if (dist < closestDist) {
+                    closest = section;
+                    closestDist = dist;
+                }
+            });
+            if (closest && closest.dataset.layer) {
+                updateMapLayer(closest.dataset.layer);
+            }
+        });
+    </script>
+</body>
+</html>
